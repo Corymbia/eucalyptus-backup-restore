@@ -64,6 +64,7 @@ euca_user = "neil"
 logger = logging.getLogger('euca-clc-backup')
 logging.basicConfig(format='%(asctime)s:%(filename)s:%(levelname)s: %(message)s', level=logging.DEBUG)
 
+
 def get_args():
     # Parse options
     parser = OptionParser()
@@ -74,6 +75,7 @@ def get_args():
     parser.add_option("--file", "-f", dest="backup_file")
     (options, args) = parser.parse_args()
     return options
+
 
 def do_backup(euca_home):
     # is the db running? socket should exist
@@ -108,15 +110,17 @@ def do_backup(euca_home):
 
     # Run a pg_dumpall dump
     logging.info("Running pg_dumpall backup")
-    dump_all="sudo pg_dumpall -h%s -p%s -U%s -f%s" % (euca_home + db_dir, db_port, db_user, backup_file)
+    dump_all = "sudo pg_dumpall -h%s -p%s -U%s -f%s" % (euca_home + db_dir, db_port, db_user, backup_file)
     os.popen(dump_all)
     logging.info("pg_dumpall complete: %s", (backup_file))
 
     # List of individual databases in postgres 
-    database_list = "sudo psql -U%s -d%s -p%s -h%s --tuples-only -c 'select datname from pg_database' | grep -E -v '(template0|template1|^$)'" % (db_user, "postgres", db_port, euca_home + db_dir)
+    database_list = "sudo psql -U%s -d%s -p%s -h%s --tuples-only -c 'select datname from pg_database' | grep -E -v '(template0|template1|^$)'" % (
+        db_user, "postgres", db_port, euca_home + db_dir)
 
     # Dump only global objects (roles and tablespaces) which include system grants
-    system_grants = "sudo pg_dumpall -h%s -p%s -U%s -g > %s/system.%s.gz" % (euca_home + db_dir, db_port, db_user, backup_subdir, date_fmt)
+    system_grants = "sudo pg_dumpall -h%s -p%s -U%s -g > %s/system.%s.gz" % (
+        euca_home + db_dir, db_port, db_user, backup_subdir, date_fmt)
     #system_grants = "pg_dumpall --oids -c -h%s -p%s -U%s -g > %s/system.%s.gz" % (db_dir, db_port, db_user, backup_subdir, date_fmt)
 
     logging.info("Backing up global objects")
@@ -126,16 +130,19 @@ def do_backup(euca_home):
     for base in os.popen(database_list).readlines():
         base = base.strip()
         filename = "%s/%s-%s.sql" % (backup_subdir, base, date)
-        dump_cmd = "sudo pg_dump -C -F c -U%s -p%s -h%s %s > %s" % (db_user, db_port, euca_home + db_dir, base, filename)
+        dump_cmd = "sudo pg_dump -C -F c -U%s -p%s -h%s %s > %s" % (
+            db_user, db_port, euca_home + db_dir, base, filename)
         logging.debug("Running pg_dump on %s", (base))
         os.popen(dump_cmd)
 
     logging.info("Backup complete")
 
+
 def do_restore(euca_home, backup_file, forreal):
     output = commands.getoutput("ps -ef")
     if "eucalyptus-cloud" in output:
-        logging.critical("Eucalyptus (eucalyptus-cloud) is currently running. Please stop eucalyptus-cloud before attempting to restore")
+        logging.critical(
+            "Eucalyptus (eucalyptus-cloud) is currently running. Please stop eucalyptus-cloud before attempting to restore")
         sys.exit(1)
     if not forreal:
         logging.info("Dry run only. Run with --forreal to really restore to " + euca_home + db_dir)
@@ -147,9 +154,6 @@ def do_restore(euca_home, backup_file, forreal):
             shutil.rmtree(euca_home + db_root)
         else:
             logging.warning("No database dir found...proceeding with restore...")
-    #logging.info("Removing old DB key...")
-    #if forreal:
-    #    os.remove(euca_home + key_dir + "euca.p12")
     logging.info("Initializing a clean database. This will take a while...")
     if forreal:
         os.popen("sudo " + euca_home + "usr/sbin/euca_conf --setup")
@@ -159,7 +163,8 @@ def do_restore(euca_home, backup_file, forreal):
         startdb(euca_home)
     logging.info("Restoring database from: " + backup_file)
     if forreal:
-        os.popen("psql -U" + db_user + " -d postgres -p " + db_port + " -h " + euca_home + db_dir + " -f " + backup_file)
+        os.popen(
+            "sudo psql -U" + db_user + " -d postgres -p " + db_port + " -h " + euca_home + db_dir + " -f " + backup_file)
     logging.info("Shutting down PostgreSQL DB")
     if forreal:
         stopdb(euca_home)
@@ -168,8 +173,8 @@ def do_restore(euca_home, backup_file, forreal):
 
 # Start Eucalyptus PostgreSQL DB
 def startdb(euca_home):
-    print("su %s -c '/usr/pgsql-9.1/bin/pg_ctl start -w -s -D%s -o -h0.0.0.0/0 -p8777'" % (euca_user, euca_home + db_dir))
-    os.popen("su %s -c '/usr/pgsql-9.1/bin/pg_ctl start -w -s -D%s -o -h0.0.0.0/0 -p8777'" % (euca_user, euca_home + db_dir))
+    print("su %s -c '/usr/pgsql-9.1/bin/pg_ctl start -w -s -D%s -o \"-h0.0.0.0/0 -p8777 -i\"'" % (euca_user, euca_home + db_dir))
+    os.popen("su %s -c '/usr/pgsql-9.1/bin/pg_ctl start -w -s -D%s -o \"-h0.0.0.0/0 -p8777 -i\"'" % (euca_user, euca_home + db_dir))
 
 # Stop Eucalyptus PostgreSQL DB
 def stopdb(euca_home):
