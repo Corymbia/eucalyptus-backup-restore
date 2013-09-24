@@ -46,10 +46,6 @@ import shutil
 prog_name = sys.argv[0]
 date_fmt = time.strftime('%Y-%m-%d-%H%M')
 date = time.strftime('%Y-%m-%d')
-backup_dir = "/home/neil/eucalyptus-backup"
-backup_subdir = backup_dir + "/" + date
-backup_file = backup_subdir + "/eucalyptus-pg_dumpall-" + date_fmt + ".sql"
-
 #Eucalyptus paths and properties
 db_port = "8777"
 db_user = "root"
@@ -68,45 +64,48 @@ logging.basicConfig(format='%(asctime)s:%(filename)s:%(levelname)s: %(message)s'
 def get_args():
     # Parse options
     parser = OptionParser()
-    parser.add_option("--eucahome", dest="euca_home", default="/")
-    parser.add_option("--backup", action="store_true", dest="backup", default=False)
-    parser.add_option("--restore", action="store_true", dest="restore", default=False)
-    parser.add_option("--forreal", action="store_true", dest="forreal", default=False)
-    parser.add_option("--file", "-f", dest="backup_file")
+    parser.add_option("--euca-home", dest="euca_home", default="/", help="Root directory where EUCALYPTUS is installed")
+    parser.add_option("--backup", "-b", action="store_true", dest="backup", default=False, help="Should we back up?")
+    parser.add_option("--restore", "-r", action="store_true", dest="restore", default=False, help="Should we restore from backup?")
+    parser.add_option("--forreal", action="store_true", dest="forreal", default=False, help="Is this a dry run?")
+    parser.add_option("--file", "-f", dest="backup_file", help="Location of .sql file to back up from")
+    parser.add_option("--keys", "-k", dest="backup_keys", default=True, help="Should we back up keys?")
+    parser.add_option("--backup-root", dest="backup_root", default="/tmp/eucalyptus-backups", help="Top level directory where backups should be stored. Default: /tmp/eucalyptus-backups")
+    parser.add_option("--backup-dir", dest="backup_dir", help="Directory where backup is stored. e.g. /tmp/eucalyptus-backups/2013-09-24-0601")
     (options, args) = parser.parse_args()
     return options
 
 
-def do_backup(euca_home):
+def do_backup(options):
+    euca_home = options.euca_home
+    backup_subdir = options.backup_root + "/" + date_fmt
+    backup_file = backup_subdir + "/eucalyptus-pg_dumpall.sql"
+    keys_subdir = backup_subdir + "/keys"
+
+    logging.info("Using %s as EUCALYPTUS home" % euca_home)
     # is the db running? socket should exist
     if not os.path.exists(euca_home + db_socket):
         logging.critical("PostgreSQL database not running. Please start eucalyptus-cloud.")
         sys.exit(1)
 
     # does pg_dumpall exist?
-    # TODO: better check
     if not os.path.isfile(pg_dumpall_path):
         logging.critical("pg_dumpall does not exist at: %s", (pg_dumpall_path))
         sys.exit(1)
 
     # does the backup dir exist? create it
-    if not os.path.exists(backup_dir):
-        logging.warn("Backup directory %s does not exist, creating...", (backup_dir))
-        os.makedirs(backup_dir)
-
-    ##########
-    # Backup #
-    ##########
-
-    # Trying...
-    # 1. pg_dumpall
-    # 2. pg_dump each eucalyptus db
-    # 3. db dir backup
-    # 4. Eucalyptus keys dir
+    if not os.path.exists(options.backup_root):
+        logging.info("Backup directory %s does not exist, creating..." % (options.backup_root))
+        os.makedirs(options.backup_root)
 
     # Create a subdir for today
     if not os.path.exists(backup_subdir):
         os.makedirs(backup_subdir)
+
+    # Copy keys
+    if options.backup_keys:
+        logging.info("Backing up keys from %s to %s" % (euca_home + key_dir, keys_subdir))
+        shutil.copytree(euca_home + key_dir, keys_subdir)
 
     # Run a pg_dumpall dump
     logging.info("Running pg_dumpall backup")
@@ -121,7 +120,6 @@ def do_backup(euca_home):
     # Dump only global objects (roles and tablespaces) which include system grants
     system_grants = "sudo pg_dumpall -h%s -p%s -U%s -g > %s/system.%s.gz" % (
         euca_home + db_dir, db_port, db_user, backup_subdir, date_fmt)
-    #system_grants = "pg_dumpall --oids -c -h%s -p%s -U%s -g > %s/system.%s.gz" % (db_dir, db_port, db_user, backup_subdir, date_fmt)
 
     logging.info("Backing up global objects")
     os.popen(system_grants)
@@ -138,7 +136,16 @@ def do_backup(euca_home):
     logging.info("Backup complete")
 
 
-def do_restore(euca_home, backup_file, forreal):
+def do_restore(options):
+    euca_home = options.euca_home
+    backup_file = options.backup_file
+    forreal = options.forreal
+    backup_dir = options.backup_dir
+    logging.info("Using %s as EUCALYPTUS home" % euca_home)
+    if not backup_dir:
+        logging.critical("backup dir (--backup-dir) must be specified. Aborting.")
+        sys.exit(1)
+    keys = backup_dir + "/keys"
     output = commands.getoutput("ps -ef")
     if "eucalyptus-cloud" in output:
         logging.critical(
@@ -148,6 +155,15 @@ def do_restore(euca_home, backup_file, forreal):
         logging.info("Dry run only. Run with --forreal to really restore to " + euca_home + db_dir)
     else:
         logging.info("Restoring from backup to " + euca_home + db_dir)
+        logging.info("Removing the old keys directory...")
+    if forreal:
+        if os.path.exists(euca_home + key_dir):
+            shutil.rmtree(euca_home + key_dir)
+        else:
+            logging.warning("No database dir found...proceeding with restore...")
+    logging.info("Restoring keys from %s" % keys)
+    if forreal:
+        shutil.copytree(keys, euca_home + key_dir)
     logging.info("Removing the old database directory...")
     if forreal:
         if os.path.exists(euca_home + db_root):
@@ -188,7 +204,7 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         if options.backup:
-            do_backup(options.euca_home)
+            do_backup(options)
             sys.exit(0)
         elif options.restore:
             if not options.backup_file:
@@ -198,7 +214,7 @@ if __name__ == "__main__":
                 if not os.path.exists(options.backup_file):
                     logging.critical("SQL backup file not found. Aborting.")
                     sys.exit(1)
-            do_restore(options.euca_home, options.backup_file, options.forreal)
+            do_restore(options)
             sys.exit(0)
         else:
             logging.critical("Either backup or restore must be specified")
