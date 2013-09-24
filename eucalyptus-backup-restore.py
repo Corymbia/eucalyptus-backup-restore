@@ -65,14 +65,22 @@ def get_args():
     # Parse options
     parser = OptionParser()
     parser.add_option("--euca-home", dest="euca_home", default="/", help="Root directory where EUCALYPTUS is installed")
-    parser.add_option("--backup", "-b", action="store_true", dest="backup", default=False, help="Should we back up?")
-    parser.add_option("--restore", "-r", action="store_true", dest="restore", default=False, help="Should we restore from backup?")
+    parser.add_option("--mode", "-m", dest="mode", help="Should we backup or restore? (specify either --mode=backup or --mode=restore)")
     parser.add_option("--forreal", action="store_true", dest="forreal", default=False, help="Is this a dry run?")
     parser.add_option("--file", "-f", dest="backup_file", help="Location of .sql file to back up from")
     parser.add_option("--keys", "-k", dest="backup_keys", default=True, help="Should we back up keys?")
     parser.add_option("--backup-root", dest="backup_root", default="/tmp/eucalyptus-backups", help="Top level directory where backups should be stored. Default: /tmp/eucalyptus-backups")
     parser.add_option("--backup-dir", dest="backup_dir", help="Directory where backup is stored. e.g. /tmp/eucalyptus-backups/2013-09-24-0601")
     (options, args) = parser.parse_args()
+    if not options.mode:
+        logging.critical("--mode must be specified. Aborting.")
+        sys.exit(1)
+    options.backup = False
+    options.restore = False
+    if options.mode == "backup":
+        options.backup = True
+    if options.mode == "restore":
+        options.restore = True
     return options
 
 
